@@ -12,7 +12,8 @@ OSRM_ROUTE_URL = os.getenv(
     "OSRM_ROUTE_URL", "https://router.project-osrm.org/route/v1/driving"
 )
 TOMTOM_API_KEY = os.getenv("TOMTOM_API_KEY")
-MATRIX_TIMEOUT_SECONDS = 20.0
+MATRIX_TIMEOUT_SECONDS = 30.0
+TOMTOM_SYNC_MATRIX_MAX_CELLS = 100
 GEOMETRY_TIMEOUT_SECONDS = 8.0
 OSRM_TABLE_TIMEOUT_SECONDS = 8.0
 OSRM_TABLE_URL = os.getenv(
@@ -71,95 +72,133 @@ def _get_tomtom_matrix(
     if not TOMTOM_API_KEY:
         raise MatrixRoutingUnavailableError("TOMTOM_API_KEY is not configured")
 
-    points = [
-        {"point": {"latitude": latitude, "longitude": longitude}}
-        for latitude, longitude in locations
+    expected_size = len(locations)
+    distances: List[List[Optional[float]]] = [
+        [None] * expected_size for _ in range(expected_size)
     ]
-    request_body = {"origins": points, "destinations": points}
-    try:
-        response = requests.post(
-            TOMTOM_MATRIX_URL,
-            params={
-                "key": TOMTOM_API_KEY,
-                "routeType": route_type,
-                "traffic": "true",
-            },
-            json=request_body,
-            timeout=MATRIX_TIMEOUT_SECONDS,
-        )
-        response.raise_for_status()
-        payload = response.json()
-    except (requests.RequestException, ValueError) as error:
-        raise MatrixRoutingUnavailableError("TomTom matrix request failed") from error
-
-    if not isinstance(payload, dict):
-        raise MatrixRoutingUnavailableError("TomTom returned an invalid response")
+    durations: List[List[Optional[float]]] = [
+        [None] * expected_size for _ in range(expected_size)
+    ]
+    traffic_delays: List[List[Optional[float]]] = [
+        [None] * expected_size for _ in range(expected_size)
+    ]
+    destination_chunk_size = min(expected_size, TOMTOM_SYNC_MATRIX_MAX_CELLS)
+    origin_chunk_size = max(
+        1, TOMTOM_SYNC_MATRIX_MAX_CELLS // destination_chunk_size
+    )
 
     try:
-        expected_size = len(locations)
-        distances: List[List[Optional[float]]] = [
-            [None] * expected_size for _ in range(expected_size)
-        ]
-        durations: List[List[Optional[float]]] = [
-            [None] * expected_size for _ in range(expected_size)
-        ]
-        traffic_delays: List[List[Optional[float]]] = [
-            [0.0] * expected_size for _ in range(expected_size)
-        ]
-
-        if "matrix" in payload:
-            matrix = payload["matrix"]
-            if (
-                len(matrix) != expected_size
-                or any(len(row) != expected_size for row in matrix)
+        for origin_start in range(0, expected_size, origin_chunk_size):
+            origin_end = min(origin_start + origin_chunk_size, expected_size)
+            for destination_start in range(
+                0, expected_size, destination_chunk_size
             ):
-                raise ValueError("TomTom returned an incomplete routing matrix")
-            matrix_entries = []
-            for origin_index, row in enumerate(matrix):
-                for destination_index, cell in enumerate(row):
-                    if int(cell.get("statusCode", 0)) != 200:
-                        raise ValueError("TomTom returned an unsuccessful matrix cell")
-                    matrix_entries.append(
-                        (
-                            origin_index,
-                            destination_index,
-                            cell["response"]["routeSummary"],
-                        )
-                    )
-        else:
-            matrix_entries = [
-                (
-                    int(item["originIndex"]),
-                    int(item["destinationIndex"]),
-                    item["routeSummary"],
+                destination_end = min(
+                    destination_start + destination_chunk_size, expected_size
                 )
-                for item in payload["data"]
-            ]
+                origins = locations[origin_start:origin_end]
+                destinations = locations[destination_start:destination_end]
+                request_body = {
+                    "origins": [
+                        {"point": {"latitude": latitude, "longitude": longitude}}
+                        for latitude, longitude in origins
+                    ],
+                    "destinations": [
+                        {"point": {"latitude": latitude, "longitude": longitude}}
+                        for latitude, longitude in destinations
+                    ],
+                }
+                try:
+                    response = requests.post(
+                        TOMTOM_MATRIX_URL,
+                        params={
+                            "key": TOMTOM_API_KEY,
+                            "routeType": route_type,
+                            "traffic": "true",
+                        },
+                        json=request_body,
+                        timeout=MATRIX_TIMEOUT_SECONDS,
+                    )
+                    response.raise_for_status()
+                    payload = response.json()
+                except requests.Timeout as error:
+                    raise MatrixRoutingUnavailableError(
+                        "TomTom matrix request timed out"
+                    ) from error
+                except requests.HTTPError as error:
+                    raise MatrixRoutingUnavailableError(
+                        f"TomTom matrix request returned HTTP {response.status_code}"
+                    ) from error
+                except requests.RequestException as error:
+                    raise MatrixRoutingUnavailableError(
+                        "TomTom matrix request failed"
+                    ) from error
+                except ValueError as error:
+                    raise MatrixRoutingUnavailableError(
+                        "TomTom returned invalid JSON"
+                    ) from error
+                if not isinstance(payload, dict):
+                    raise ValueError("TomTom returned an invalid response")
 
-        for origin_index, destination_index, summary in matrix_entries:
-            distance_m = float(summary["lengthInMeters"])
-            duration_s = float(summary["travelTimeInSeconds"])
-            traffic_delay_s = float(summary.get("trafficDelayInSeconds", 0.0))
-            if not (0 <= origin_index < expected_size):
-                raise ValueError("TomTom returned an invalid origin index")
-            if not (0 <= destination_index < expected_size):
-                raise ValueError("TomTom returned an invalid destination index")
-            if (
-                not math.isfinite(distance_m)
-                or distance_m < 0
-                or not math.isfinite(duration_s)
-                or duration_s < 0
-                or not math.isfinite(traffic_delay_s)
-                or traffic_delay_s < 0
-            ):
-                raise ValueError("TomTom returned invalid distance or duration values")
-            distances[origin_index][destination_index] = distance_m
-            durations[origin_index][destination_index] = duration_s
-            traffic_delays[origin_index][destination_index] = traffic_delay_s
+                if "matrix" in payload:
+                    matrix = payload["matrix"]
+                    if (
+                        len(matrix) != len(origins)
+                        or any(len(row) != len(destinations) for row in matrix)
+                    ):
+                        raise ValueError("TomTom returned an incomplete routing matrix")
+                    matrix_entries = []
+                    for local_origin, row in enumerate(matrix):
+                        for local_destination, cell in enumerate(row):
+                            if int(cell.get("statusCode", 0)) != 200:
+                                raise ValueError(
+                                    "TomTom returned an unsuccessful matrix cell"
+                                )
+                            matrix_entries.append(
+                                (
+                                    local_origin,
+                                    local_destination,
+                                    cell["response"]["routeSummary"],
+                                )
+                            )
+                else:
+                    matrix_entries = [
+                        (
+                            int(item["originIndex"]),
+                            int(item["destinationIndex"]),
+                            item["routeSummary"],
+                        )
+                        for item in payload["data"]
+                    ]
+
+                for local_origin, local_destination, summary in matrix_entries:
+                    if not (0 <= local_origin < len(origins)):
+                        raise ValueError("TomTom returned an invalid origin index")
+                    if not (0 <= local_destination < len(destinations)):
+                        raise ValueError("TomTom returned an invalid destination index")
+                    distance_m = float(summary["lengthInMeters"])
+                    duration_s = float(summary["travelTimeInSeconds"])
+                    traffic_delay_s = float(summary.get("trafficDelayInSeconds", 0.0))
+                    if (
+                        not math.isfinite(distance_m)
+                        or distance_m < 0
+                        or not math.isfinite(duration_s)
+                        or duration_s < 0
+                        or not math.isfinite(traffic_delay_s)
+                        or traffic_delay_s < 0
+                    ):
+                        raise ValueError(
+                            "TomTom returned invalid distance or duration values"
+                        )
+                    origin_index = origin_start + local_origin
+                    destination_index = destination_start + local_destination
+                    distances[origin_index][destination_index] = distance_m
+                    durations[origin_index][destination_index] = duration_s
+                    traffic_delays[origin_index][destination_index] = traffic_delay_s
 
         if any(value is None for row in distances for value in row) or any(
             value is None for row in durations for value in row
-        ):
+        ) or any(value is None for row in traffic_delays for value in row):
             raise ValueError("TomTom returned an incomplete routing matrix")
 
         return (
@@ -167,9 +206,9 @@ def _get_tomtom_matrix(
             [[float(value) for value in row] for row in durations],
             [[float(value) for value in row] for row in traffic_delays],
         )
-    except (KeyError, TypeError, ValueError) as error:
+    except (KeyError, IndexError, TypeError, ValueError) as error:
         raise MatrixRoutingUnavailableError(
-            "TomTom returned an invalid routing matrix"
+            "TomTom matrix request failed or returned an invalid matrix"
         ) from error
 
 
