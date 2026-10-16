@@ -55,7 +55,7 @@ Create `backend/.env` from `backend/.env.example` to enable live traffic or over
 
 Geolocation is requested only after the user chooses “Use my location.” Browsers may require HTTPS (or localhost) for geolocation. Choosing the approximate-location option uses Kolkata center coordinates.
 
-The regional names and directory entries follow the supplied 2026 list. Added records use approximate map coordinates and illustrative crowd/theme metadata where the source did not provide those details. The radius control extends to 80 km so Kalyani and outlying entries can be explored; choosing Kalyani or Other areas widens the radius when needed.
+The regional names and directory entries follow the supplied 2026 list. Crowd levels are illustrative estimates, not a live crowd feed; added records may also use approximate map coordinates and illustrative theme metadata where the source did not provide those details. The radius control extends to 80 km so Kalyani and outlying entries can be explored; choosing Kalyani or Other areas widens the radius when needed.
 
 ## Notes
 

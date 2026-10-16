@@ -11,6 +11,7 @@ interface RouteSummaryProps {
   onDirections: () => void
   onClose: () => void
   busy: boolean
+  routeNeedsUpdate: boolean
 }
 
 const travelModeLabels: Record<TravelMode, string> = {
@@ -21,13 +22,14 @@ const travelModeLabels: Record<TravelMode, string> = {
   transit: 'Public transit',
 }
 
-export function RouteSummary({ routePlan, onReoptimize, onPreferenceChange, onTravelModeChange, onDirections, onClose, busy }: RouteSummaryProps) {
+export function RouteSummary({ routePlan, onReoptimize, onPreferenceChange, onTravelModeChange, onDirections, onClose, busy, routeNeedsUpdate }: RouteSummaryProps) {
   return (
     <section className="route-summary" role="dialog" aria-label="Route summary">
       <header className="route-summary-head">
         <div className="route-summary-title"><div className="route-icon"><Route size={17} /></div><div><p className="eyebrow">Your Pujo trail · {travelModeLabels[routePlan.travelMode]}</p><h2>Route comparison</h2></div><span className={`traffic-source ${routePlan.trafficSource}`}>{routePlan.trafficSource === 'live' ? 'TomTom traffic' : 'ETA estimate'}</span></div>
         <button className="icon-button" aria-label="Hide route summary" onClick={onClose}><X size={17} /></button>
       </header>
+      {routeNeedsUpdate && <p className="route-update-notice" role="status">New pandals are queued. The map and traffic below show the previous route until you update it.</p>}
       <div className="route-totals">
         <div><Navigation2 size={15} /><strong>{routePlan.totalDistanceKm.toFixed(1)} <small>km</small></strong><span>Total distance</span></div>
         <div><Clock3 size={15} /><strong>{formatDuration(routePlan.totalDurationMin)}</strong><span>Estimated travel</span></div>
@@ -67,7 +69,7 @@ export function RouteSummary({ routePlan, onReoptimize, onPreferenceChange, onTr
         ))}
       </div>
       <button className="directions-entry-button" type="button" onClick={onDirections}><Map size={15} /> Directions <span>Turn-by-turn</span></button>
-      <button className="reoptimize-button" type="button" onClick={onReoptimize} disabled={busy}><RefreshCw size={15} className={busy ? 'spin' : ''} />{busy ? (routePlan.trafficSource === 'live' ? 'Checking traffic…' : 'Re-planning…') : (routePlan.trafficSource === 'live' ? 'Re-optimize with live traffic' : 'Re-plan route')}</button>
+      <button className="reoptimize-button" type="button" onClick={onReoptimize} disabled={busy}><RefreshCw size={15} className={busy ? 'spin' : ''} />{busy ? 'Planning…' : routeNeedsUpdate ? 'Update route with queued pandals' : (routePlan.trafficSource === 'live' ? 'Re-optimize with live traffic' : 'Re-plan route')}</button>
       <p className="route-disclaimer">{routePlan.travelMode === 'transit' ? 'Transit times are rough estimates, not live schedules. Open Google Maps for real routes and departures.' : routePlan.trafficSource === 'live' ? 'Driving ETA includes traffic from TomTom. Live traffic changes; ETA uses the provider’s traffic-aware duration.' : `Live congestion data is unavailable. ${travelModeLabels[routePlan.travelMode]} ETA uses typical route durations, not current traffic.`}</p>
       <p className="route-map-hint">Tap a numbered stop or colored route segment for leg details.</p>
     </section>

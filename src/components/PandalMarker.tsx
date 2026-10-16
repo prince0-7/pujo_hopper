@@ -48,7 +48,7 @@ export function PandalMarker({ pandal, distanceKm, added, onAdd }: PandalMarkerP
             <p>{pandal.theme}</p>
             <div className="popup-meta">
               <span><MapPin size={13} aria-hidden="true" /> {distanceKm.toFixed(1)} km away</span>
-              <span className={`crowd crowd-${pandal.crowdLevel}`}>{pandal.crowdLevel} crowd</span>
+              <span className={`crowd crowd-${pandal.crowdLevel}`} title="Illustrative estimate, not a live crowd feed">{pandal.crowdLevel} crowd estimate</span>
             </div>
             <button className={`popup-add ${added ? 'is-added' : ''}`} onClick={() => onAdd(pandal)} disabled={added}>
               {added ? 'Added to your route' : 'Add to my route'}

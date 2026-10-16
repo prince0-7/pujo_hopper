@@ -143,6 +143,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(214, 154, 50
 .popup-meta > span:first-child { display: flex; align-items: center; gap: 4px; }
 .crowd { padding: 4px 6px; border-radius: 3px; font-size: 9px; font-weight: 700; text-transform: capitalize; }
 .crowd-low { background: #e4f3e9; color: #267449; }.crowd-medium { background: #fff1d7; color: #93651a; }.crowd-high { background: #fbe8e3; color: #9d3b2e; }
+.crowd { max-width: 120px; text-align: center; }
 .popup-add { display: flex; width: 100%; min-height: 34px; align-items: center; justify-content: center; margin-top: 11px; border: 0; border-radius: 3px; background: var(--vermillion); color: white; cursor: pointer; font-size: 11px; font-weight: 700; }
 .popup-add:hover:not(:disabled) { background: var(--vermillion-deep); }.popup-add:disabled { background: #e9e0d6; color: #756b60; cursor: default; }
 
@@ -237,6 +238,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(214, 154, 50
 .reoptimize-button:hover:not(:disabled) { border-color: #dbbd8e; background: #fff2d9; }.reoptimize-button:disabled { opacity: .65; cursor: wait; }
 .spin { animation: spin 1s linear infinite; }@keyframes spin { to { transform: rotate(360deg); } }
 .route-disclaimer { margin: 8px 0 0; color: #958b7f; font-size: 9px; text-align: center; }
+.route-update-notice { margin: 10px 0 0; padding: 8px 10px; border: 1px solid #e9cf9c; border-radius: 8px; background: #fff8e9; color: #765521; font-size: 11px; line-height: 1.45; }
 .route-map-hint { margin: 5px 0 0; color: #665844; font-size: 9px; text-align: center; }
 .toast-message { position: absolute; z-index: 900; right: 20px; bottom: 133px; display: flex; align-items: center; gap: 9px; max-width: min(350px, calc(100% - 32px)); padding: 9px 11px; border: 1px solid #e8ddca; border-radius: 4px; background: #fffdf8; box-shadow: 0 6px 20px rgba(39,32,22,.16); color: #554b3f; font-size: 11px; animation: panel-enter .2s ease-out; }
 .toast-message > svg { flex: 0 0 auto; color: var(--vermillion); }.toast-message button { flex: 0 0 auto; margin-left: auto; }

@@ -56,7 +56,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   addToRoute: (pandal) => {
     const visitingList = get().visitingList
     if (visitingList.some((stop) => stop.id === pandal.id)) return
-    set({ visitingList: [...visitingList, pandal], routePlan: null })
+    set({ visitingList: [...visitingList, pandal] })
   },
   removeFromRoute: (id) =>
     set({ visitingList: get().visitingList.filter((pandal) => pandal.id !== id), routePlan: null }),

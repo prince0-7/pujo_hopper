@@ -31,6 +31,7 @@ function App() {
   const [manualLocationError, setManualLocationError] = useState('')
   const [locationPicking, setLocationPicking] = useState(false)
   const locationMenuRef = useRef<HTMLDivElement>(null)
+  const routeBusyRef = useRef(false)
 
   const loadPandals = useAppStore((state) => state.loadPandals)
   const setError = useAppStore((state) => state.setError)
@@ -72,6 +73,11 @@ function App() {
     .filter((pandal) => distanceFromUser(pandal) <= app.radiusKm)
     .sort((a, b) => distanceFromUser(a) - distanceFromUser(b))
   const visitingIds = new Set(app.visitingList.map((pandal) => pandal.id))
+  const plannedStopIds = new Set(app.routePlan?.orderedStops.map((pandal) => pandal.id) ?? [])
+  const routeNeedsUpdate = Boolean(app.routePlan && (
+    plannedStopIds.size !== visitingIds.size ||
+    [...visitingIds].some((id) => !plannedStopIds.has(id))
+  ))
 
   function chooseLocation() {
     setLocationMenuOpen(false)
@@ -128,14 +134,26 @@ function App() {
   }
 
   async function handlePlanRoute(preference: RoutePreference = routePreference, mode: TravelMode = travelMode) {
-    if (!app.visitingList.length) return
+    if (!app.visitingList.length || routeBusyRef.current) return
+    routeBusyRef.current = true
     const origin = app.userLocation
+    const pandalIds = app.visitingList.map((pandal) => pandal.id)
+    const selectedZone = app.selectedZone
+    const previousRoutePlan = app.routePlan
     setRouteBusy(true)
     app.setError(null)
     try {
-      const route = await planRoute({ origin, pandalIds: app.visitingList.map((pandal) => pandal.id), algorithm: 'astar', preference, travelMode: mode })
-      const currentLocation = useAppStore.getState().userLocation
-      if (currentLocation.lat !== origin.lat || currentLocation.lng !== origin.lng) return
+      const route = await planRoute({ origin, pandalIds, algorithm: 'astar', preference, travelMode: mode })
+      const currentState = useAppStore.getState()
+      const currentPandalIds = currentState.visitingList.map((pandal) => pandal.id)
+      if (
+        currentState.userLocation.lat !== origin.lat ||
+        currentState.userLocation.lng !== origin.lng ||
+        currentState.selectedZone !== selectedZone ||
+        currentState.routePlan !== previousRoutePlan ||
+        currentPandalIds.length !== pandalIds.length ||
+        currentPandalIds.some((id, index) => id !== pandalIds[index])
+      ) return
       app.setRoutePlan(route)
       setRoutePreference(preference)
       setTravelMode(mode)
@@ -144,6 +162,7 @@ function App() {
     } catch (error) {
       app.setError(error instanceof Error ? error.message : 'Unable to plan your route.')
     } finally {
+      routeBusyRef.current = false
       setRouteBusy(false)
     }
   }
@@ -187,7 +206,7 @@ function App() {
       {app.isLoading && <div className="map-loading" aria-label="Loading pandals"><span /><span /><span /></div>}
       {!app.isLoading && visiblePandals.length === 0 && <div className="map-empty" role="status"><div className="empty-map-icon"><MapPin size={17} /></div><div><strong>No pandals in this radius</strong><span>Try a wider search or another zone.</span></div></div>}
       {app.routePlan && directionsOpen && <DirectionsPanel routePlan={app.routePlan} onBack={() => setDirectionsOpen(false)} />}
-      {app.routePlan && !directionsOpen && <RouteSummary routePlan={app.routePlan} onReoptimize={() => { void handlePlanRoute(routePreference, travelMode) }} onPreferenceChange={(preference) => { void handlePlanRoute(preference, travelMode) }} onTravelModeChange={(mode) => { void handlePlanRoute(routePreference, mode) }} onDirections={() => setDirectionsOpen(true)} onClose={() => app.setRoutePlan(null)} busy={routeBusy} />}
+      {app.routePlan && !directionsOpen && <RouteSummary routePlan={app.routePlan} routeNeedsUpdate={routeNeedsUpdate} onReoptimize={() => { void handlePlanRoute(routePreference, travelMode) }} onPreferenceChange={(preference) => { void handlePlanRoute(preference, travelMode) }} onTravelModeChange={(mode) => { void handlePlanRoute(routePreference, mode) }} onDirections={() => setDirectionsOpen(true)} onClose={() => app.setRoutePlan(null)} busy={routeBusy} />}
       <ZoneBar selectedZone={app.selectedZone} radiusKm={app.radiusKm} travelMode={travelMode} onTravelModeChange={(mode) => { if (app.routePlan) void handlePlanRoute(routePreference, mode); else setTravelMode(mode) }} onZoneChange={(zone) => { if (zone === 'Kalyani') app.setRadiusKm(Math.max(app.radiusKm, 60)); if (zone === 'Other areas') app.setRadiusKm(Math.max(app.radiusKm, 30)); void app.setSelectedZone(zone) }} onRadiusChange={app.setRadiusKm} onPlanRoute={() => handlePlanRoute(routePreference, travelMode)} routeBusy={routeBusy} stopCount={app.visitingList.length} />
       <VisitingDrawer open={drawerOpen} pandals={app.visitingList} onClose={() => setDrawerOpen(false)} onRemove={app.removeFromRoute} onReorder={app.reorderVisitingList} />
       {(toast || app.error) && <div className="toast-message" role="status"><Bell size={15} />{toast || app.error}<button aria-label="Dismiss notification" onClick={() => { setToast(''); setError(null) }}><X size={13} /></button></div>}
