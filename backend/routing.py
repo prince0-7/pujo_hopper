@@ -311,12 +311,13 @@ def get_route_matrices_by_preference(
 ) -> Tuple[RouteMatrices, RouteMatrices, bool]:
     if travel_mode == "driving" and TOMTOM_API_KEY:
         try:
-            fastest_matrices = _get_tomtom_matrix(locations, route_type="fastest")
-            shortest_matrices = _get_tomtom_matrix(locations, route_type="shortest")
-            return fastest_matrices, shortest_matrices, True
+            traffic_aware_matrices = _get_tomtom_matrix(
+                locations, route_type="fastest"
+            )
+            return traffic_aware_matrices, traffic_aware_matrices, True
         except MatrixRoutingUnavailableError as error:
             logger.warning(
-                "TomTom comparison matrices unavailable; using estimated driving costs: %s",
+                "TomTom traffic-aware matrix unavailable; using estimated driving costs: %s",
                 error,
             )
     fallback = _fallback_matrices(locations, travel_mode)
