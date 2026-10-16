@@ -13,7 +13,9 @@ Open the local URL printed by Vite. Check a production bundle with `npm run buil
 
 ## Deploy to Vercel
 
-Import this repository into Vercel with the project root as the Root Directory. The checked-in `vercel.json` builds the Vite app into `dist` and rewrites client-side routes to `index.html`. The frontend defaults to mock data, so it can deploy as a standalone static app. To use a separately hosted FastAPI backend, set `VITE_USE_MOCK=false` and `VITE_API_BASE_URL` in the Vercel project's environment variables; do not set `VITE_API_BASE_URL` to localhost for a production deployment.
+Import this repository into Vercel with the project root as the Root Directory. The checked-in `vercel.json` builds the Vite app into `dist` and rewrites client-side routes to `index.html`. The `build:vercel` script disables mock data and points the frontend at same-origin Python functions for `/api/pandals`, `/api/status`, and `/api/routes/plan`. Python dependencies are installed from the root `requirements.txt`.
+
+To enable live TomTom traffic, add `TOMTOM_API_KEY` in the Vercel project's Settings → Environment Variables, enabled for the Production environment (and Preview if desired), then redeploy. Keep it as a server-side variable: do not add it to a `VITE_` variable or commit it. If the key is not configured or TomTom is unavailable, driving routes continue to use the existing non-live routing fallback. The route-planning function is configured for up to 60 seconds; this is subject to the limits of the Vercel plan.
 
 ## Run frontend and backend together
 

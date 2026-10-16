@@ -7,6 +7,7 @@
     "dev": "vite",
     "dev:full": "cross-env VITE_USE_MOCK=false concurrently \"vite --host 127.0.0.1\" \"python -m uvicorn backend.main:app --reload --port 8000\"",
     "build": "tsc -b && vite build",
+    "build:vercel": "cross-env VITE_USE_MOCK=false VITE_API_BASE_URL=/api npm run build",
     "lint": "oxlint",
     "preview": "vite preview"
   },
