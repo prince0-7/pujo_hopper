@@ -11,6 +11,10 @@ npm run dev
 
 Open the local URL printed by Vite. Check a production bundle with `npm run build`; `npm run preview` serves that bundle locally.
 
+## Deploy to Vercel
+
+Import this repository into Vercel with the project root as the Root Directory. The checked-in `vercel.json` builds the Vite app into `dist` and rewrites client-side routes to `index.html`. The frontend defaults to mock data, so it can deploy as a standalone static app. To use a separately hosted FastAPI backend, set `VITE_USE_MOCK=false` and `VITE_API_BASE_URL` in the Vercel project's environment variables; do not set `VITE_API_BASE_URL` to localhost for a production deployment.
+
 ## Run frontend and backend together
 
 Install backend dependencies once, then launch both servers from the project root:
