@@ -1,6 +1,7 @@
 import logging
 import math
 import os
+from array import array
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import requests
@@ -14,6 +15,7 @@ OSRM_ROUTE_URL = os.getenv(
 TOMTOM_API_KEY = os.getenv("TOMTOM_API_KEY")
 MATRIX_TIMEOUT_SECONDS = 30.0
 TOMTOM_SYNC_MATRIX_MAX_CELLS = 100
+EXACT_ROUTE_STOP_LIMIT = 16
 GEOMETRY_TIMEOUT_SECONDS = 8.0
 OSRM_TABLE_TIMEOUT_SECONDS = 8.0
 OSRM_TABLE_URL = os.getenv(
@@ -561,6 +563,68 @@ def _traffic_level(travel_time_s: float, traffic_delay_s: float, is_live: bool) 
     return "low"
 
 
+def _nearest_neighbor_order(cost_matrix: List[List[float]], stop_count: int) -> List[int]:
+    unvisited = set(range(1, stop_count + 1))
+    current = 0
+    order = []
+    while unvisited:
+        current = min(unvisited, key=lambda index: cost_matrix[current][index])
+        order.append(current)
+        unvisited.remove(current)
+    return order
+
+
+def _optimal_stop_order(cost_matrix: List[List[float]], stop_count: int) -> List[int]:
+    if stop_count > EXACT_ROUTE_STOP_LIMIT:
+        return _nearest_neighbor_order(cost_matrix, stop_count)
+
+    state_count = (1 << stop_count) * stop_count
+    costs = array("d", [math.inf]) * state_count
+    parents = array("b", [-2]) * state_count
+    for stop_index in range(stop_count):
+        state = (1 << stop_index) * stop_count + stop_index
+        costs[state] = cost_matrix[0][stop_index + 1]
+        parents[state] = -1
+
+    for visited in range(1, 1 << stop_count):
+        remaining = ((1 << stop_count) - 1) ^ visited
+        last_stops = visited
+        while last_stops:
+            last_bit = last_stops & -last_stops
+            last_index = last_bit.bit_length() - 1
+            state = visited * stop_count + last_index
+            current_cost = costs[state]
+            if current_cost < math.inf:
+                next_stops = remaining
+                while next_stops:
+                    next_bit = next_stops & -next_stops
+                    next_index = next_bit.bit_length() - 1
+                    next_state = (visited | next_bit) * stop_count + next_index
+                    candidate_cost = current_cost + cost_matrix[last_index + 1][next_index + 1]
+                    if candidate_cost < costs[next_state]:
+                        costs[next_state] = candidate_cost
+                        parents[next_state] = last_index
+                    next_stops ^= next_bit
+            last_stops ^= last_bit
+
+    full_route = (1 << stop_count) - 1
+    final_stops = range(stop_count)
+    last_index = min(
+        final_stops,
+        key=lambda index: costs[full_route * stop_count + index],
+    )
+    order = []
+    visited = full_route
+    while last_index >= 0:
+        order.append(last_index + 1)
+        state = visited * stop_count + last_index
+        previous_index = parents[state]
+        visited ^= 1 << last_index
+        last_index = previous_index
+    order.reverse()
+    return order
+
+
 def optimize_pandal_route(
     start_loc: Tuple[float, float],
     pandals: List[Dict[str, Any]],
@@ -571,7 +635,7 @@ def optimize_pandal_route(
     matrices: Optional[RouteMatrices] = None,
     live_traffic: Optional[bool] = None,
 ) -> Dict[str, Any]:
-    """Order stops using a nearest-neighbor heuristic over mode-specific costs."""
+    """Optimize stop order over pairwise routing costs."""
     if preference not in {"fastest", "shortest"}:
         raise ValueError("preference must be 'fastest' or 'shortest'")
     if travel_mode not in VALHALLA_COSTING:
@@ -624,18 +688,24 @@ def optimize_pandal_route(
             for origin, distance_row in enumerate(distance_matrix)
         ]
 
-    unvisited = set(range(1, len(locations)))
-    current_index = 0
+    if preference == "shortest":
+        cost_matrix = distance_matrix
+    else:
+        cost_matrix = [
+            [
+                math.ceil(float(duration) / 60 * traffic_multiplier)
+                for duration in row
+            ]
+            for row in duration_matrix
+        ]
+    stop_order = _optimal_stop_order(cost_matrix, len(target_pandals))
     total_distance_m = 0.0
     total_duration_mins = 0
     total_duration_s = 0.0
     sequence = []
-    cost_matrix = distance_matrix if preference == "shortest" else duration_matrix
+    current_index = 0
 
-    while unvisited:
-        next_index = min(
-            unvisited, key=lambda index: cost_matrix[current_index][index]
-        )
+    for next_index in stop_order:
         distance_m = float(distance_matrix[current_index][next_index])
         duration_s = float(duration_matrix[current_index][next_index])
         traffic_delay_s = float(traffic_delay_matrix[current_index][next_index])
@@ -659,7 +729,6 @@ def optimize_pandal_route(
             }
         )
         current_index = next_index
-        unvisited.remove(next_index)
 
     return {
         "total_distance_km": round(total_distance_m / 1000, 2),
