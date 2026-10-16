@@ -36,7 +36,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   routePlan: null,
   isLoading: false,
   error: null,
-  setUserLocation: (userLocation, locationStatus) => set({ userLocation, locationStatus }),
+  setUserLocation: (userLocation, locationStatus) => set({ userLocation, locationStatus, routePlan: null }),
   setLocationStatus: (locationStatus) => set({ locationStatus }),
   setSelectedZone: async (selectedZone) => {
     set({ selectedZone, routePlan: null })

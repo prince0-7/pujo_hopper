@@ -4,7 +4,7 @@ export type CrowdLevel = 'low' | 'medium' | 'high'
 export type TrafficLevel = 'low' | 'moderate' | 'heavy' | 'unavailable'
 export type RoutePreference = 'fastest' | 'shortest'
 export type TravelMode = 'walking' | 'driving' | 'cycling' | 'motorcycle' | 'transit'
-export type LocationStatus = 'idle' | 'requesting' | 'granted' | 'denied' | 'unavailable'
+export type LocationStatus = 'idle' | 'requesting' | 'granted' | 'manual' | 'denied' | 'unavailable'
 
 export interface LatLng {
   lat: number

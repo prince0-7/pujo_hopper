@@ -1,6 +1,6 @@
 import { divIcon } from 'leaflet'
 import { Fragment, useEffect } from 'react'
-import { MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from 'react-leaflet'
+import { MapContainer, Marker, Polyline, Popup, TileLayer, useMap, useMapEvents } from 'react-leaflet'
 import type { LatLng, Pandal, RoutePlan, ZoneFilter } from '../types'
 import { formatDuration } from '../utils/formatDuration'
 import { PandalMarker } from './PandalMarker'
@@ -13,6 +13,8 @@ interface MapProps {
   visitingIds: Set<string>
   onAdd: (pandal: Pandal) => void
   distanceFromUser: (pandal: Pandal) => number
+  locationPicking: boolean
+  onLocationPick: (location: LatLng) => void
 }
 
 const trafficColors = { low: '#00a870', moderate: '#facc15', heavy: '#ef3340' }
@@ -36,6 +38,23 @@ function stopIcon(number: number) {
   })
 }
 
+function LocationPicker({ enabled, onPick }: { enabled: boolean; onPick: (location: LatLng) => void }) {
+  const map = useMap()
+
+  useEffect(() => {
+    map.getContainer().classList.toggle('location-picking', enabled)
+    return () => map.getContainer().classList.remove('location-picking')
+  }, [enabled, map])
+
+  useMapEvents({
+    click(event) {
+      if (enabled) onPick({ lat: event.latlng.lat, lng: event.latlng.lng })
+    },
+  })
+
+  return null
+}
+
 function RouteViewport({ routePlan, userLocation, selectedZone, pandals }: { routePlan: RoutePlan | null; userLocation: LatLng; selectedZone: ZoneFilter; pandals: Pandal[] }) {
   const map = useMap()
   const pandalBounds = pandals.map((pandal) => `${pandal.lat},${pandal.lng}`).join(';')
@@ -44,6 +63,10 @@ function RouteViewport({ routePlan, userLocation, selectedZone, pandals }: { rou
     const recenter = () => map.setView([userLocation.lat, userLocation.lng], 13, { animate: true })
     window.addEventListener('pandal-recenter', recenter)
     return () => window.removeEventListener('pandal-recenter', recenter)
+  }, [map, userLocation])
+
+  useEffect(() => {
+    map.setView([userLocation.lat, userLocation.lng], map.getZoom(), { animate: true })
   }, [map, userLocation])
 
   useEffect(() => {
@@ -59,7 +82,7 @@ function RouteViewport({ routePlan, userLocation, selectedZone, pandals }: { rou
   return null
 }
 
-export function MapView({ userLocation, selectedZone, pandals, routePlan, visitingIds, onAdd, distanceFromUser }: MapProps) {
+export function MapView({ userLocation, selectedZone, pandals, routePlan, visitingIds, onAdd, distanceFromUser, locationPicking, onLocationPick }: MapProps) {
   return (
     <MapContainer center={[userLocation.lat, userLocation.lng]} zoom={13} zoomControl={false} className="map-canvas" aria-label="Map of Durga Puja pandals in Kolkata">
       <TileLayer
@@ -67,6 +90,7 @@ export function MapView({ userLocation, selectedZone, pandals, routePlan, visiti
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
       <RouteViewport routePlan={routePlan} userLocation={userLocation} selectedZone={selectedZone} pandals={pandals} />
+      <LocationPicker enabled={locationPicking} onPick={onLocationPick} />
       <Marker position={[userLocation.lat, userLocation.lng]} icon={currentLocationIcon()} keyboard title="Your location">
         {routePlan?.legs[0] && (
           <Popup>

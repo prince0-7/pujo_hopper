@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Bell, ChevronDown, ListChecks, LocateFixed, MapPin, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Bell, ChevronDown, Crosshair, ListChecks, LocateFixed, MapPin, X } from 'lucide-react'
 import { DirectionsPanel } from './components/DirectionsPanel'
 import { MapView } from './components/Map'
 import { PermissionModal } from './components/PermissionModal'
@@ -9,7 +9,7 @@ import { ZoneBar } from './components/ZoneBar'
 import { useGeolocation } from './hooks/useGeolocation'
 import { planRoute } from './services/api'
 import { useAppStore } from './store/useAppStore'
-import type { RoutePreference, TravelMode } from './types'
+import type { LatLng, RoutePreference, TravelMode } from './types'
 import { haversine } from './utils/geo'
 import './App.css'
 
@@ -24,12 +24,40 @@ function App() {
   const [travelMode, setTravelMode] = useState<TravelMode>('driving')
   const [directionsOpen, setDirectionsOpen] = useState(false)
   const [toast, setToast] = useState('')
+  const [locationMenuOpen, setLocationMenuOpen] = useState(false)
+  const [manualLocationOpen, setManualLocationOpen] = useState(false)
+  const [manualLatitude, setManualLatitude] = useState('')
+  const [manualLongitude, setManualLongitude] = useState('')
+  const [manualLocationError, setManualLocationError] = useState('')
+  const [locationPicking, setLocationPicking] = useState(false)
+  const locationMenuRef = useRef<HTMLDivElement>(null)
 
   const loadPandals = useAppStore((state) => state.loadPandals)
   const setError = useAppStore((state) => state.setError)
   const showApproximateBanner = (app.locationStatus === 'denied' || app.locationStatus === 'unavailable') && !approximateBannerDismissed
 
   useEffect(() => { void loadPandals() }, [loadPandals])
+
+  useEffect(() => {
+    function closeLocationMenu(event: MouseEvent) {
+      if (event.target instanceof Node && !locationMenuRef.current?.contains(event.target)) {
+        setLocationMenuOpen(false)
+        setManualLocationOpen(false)
+      }
+    }
+    function closeLocationMenuOnEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setLocationMenuOpen(false)
+        setManualLocationOpen(false)
+      }
+    }
+    document.addEventListener('pointerdown', closeLocationMenu)
+    document.addEventListener('keydown', closeLocationMenuOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeLocationMenu)
+      document.removeEventListener('keydown', closeLocationMenuOnEscape)
+    }
+  }, [])
 
   useEffect(() => {
     if (!app.error) return
@@ -46,21 +74,68 @@ function App() {
   const visitingIds = new Set(app.visitingList.map((pandal) => pandal.id))
 
   function chooseLocation() {
+    setLocationMenuOpen(false)
+    setManualLocationOpen(false)
+    setLocationPicking(false)
     setPermissionOpen(false)
     requestLocation()
   }
 
   function chooseApproximate() {
+    setLocationMenuOpen(false)
+    setManualLocationOpen(false)
+    setLocationPicking(false)
     setPermissionOpen(false)
     setApproximateLocation()
   }
 
+  function toggleManualLocation() {
+    setManualLatitude(String(app.userLocation.lat))
+    setManualLongitude(String(app.userLocation.lng))
+    setManualLocationError('')
+    setManualLocationOpen((open) => !open)
+  }
+
+  function applyManualLocation(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const lat = Number(manualLatitude)
+    const lng = Number(manualLongitude)
+    if (!manualLatitude.trim() || !manualLongitude.trim() || !Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      setManualLocationError('Enter a valid latitude (-90 to 90) and longitude (-180 to 180).')
+      return
+    }
+    app.setUserLocation({ lat, lng }, 'manual')
+    setManualLocationOpen(false)
+    setLocationMenuOpen(false)
+    setPermissionOpen(false)
+    setLocationPicking(false)
+    setApproximateBannerDismissed(true)
+    setManualLocationError('')
+  }
+
+  function startLocationPick() {
+    setLocationMenuOpen(false)
+    setManualLocationOpen(false)
+    setLocationPicking(true)
+    setApproximateBannerDismissed(true)
+    setPermissionOpen(false)
+  }
+
+  function handleLocationPick(location: LatLng) {
+    app.setUserLocation(location, 'manual')
+    setLocationPicking(false)
+    setApproximateBannerDismissed(true)
+  }
+
   async function handlePlanRoute(preference: RoutePreference = routePreference, mode: TravelMode = travelMode) {
     if (!app.visitingList.length) return
+    const origin = app.userLocation
     setRouteBusy(true)
     app.setError(null)
     try {
-      const route = await planRoute({ origin: app.userLocation, pandalIds: app.visitingList.map((pandal) => pandal.id), algorithm: 'astar', preference, travelMode: mode })
+      const route = await planRoute({ origin, pandalIds: app.visitingList.map((pandal) => pandal.id), algorithm: 'astar', preference, travelMode: mode })
+      const currentLocation = useAppStore.getState().userLocation
+      if (currentLocation.lat !== origin.lat || currentLocation.lng !== origin.lng) return
       app.setRoutePlan(route)
       setRoutePreference(preference)
       setTravelMode(mode)
@@ -81,12 +156,32 @@ function App() {
 
   return (
     <main className="planner-shell">
-      <MapView userLocation={app.userLocation} selectedZone={app.selectedZone} pandals={visiblePandals} routePlan={app.routePlan} visitingIds={visitingIds} onAdd={addPandal} distanceFromUser={distanceFromUser} />
+      <MapView userLocation={app.userLocation} selectedZone={app.selectedZone} pandals={visiblePandals} routePlan={app.routePlan} visitingIds={visitingIds} onAdd={addPandal} distanceFromUser={distanceFromUser} locationPicking={locationPicking} onLocationPick={handleLocationPick} />
       <header className="app-header">
         <div className="brand-block"><div className="brand-seal" aria-hidden="true"><span>শ</span></div><div className="brand-copy"><h1>Pandal Hopper</h1><p>SUBHO PUJO <i /> KOLKATA</p></div></div>
         <div className="header-actions"><span className="season-pill"><span className="season-dot" /> Pujo season</span><button className="list-trigger" type="button" onClick={() => setDrawerOpen(true)} aria-label={`Open visiting list, ${app.visitingList.length} stops`} aria-expanded={drawerOpen}><ListChecks size={18} /><span className="list-trigger-label">My list</span><span className="list-count">{app.visitingList.length}</span></button></div>
       </header>
-      <div className="map-status-strip"><span className="status-location"><MapPin size={14} /><span>{app.locationStatus === 'granted' ? 'Your location' : 'Kolkata, West Bengal'}</span><ChevronDown size={13} /></span><span className="pandal-total">{app.isLoading ? 'Finding pandals…' : `${visiblePandals.length} pandals nearby`}</span></div>
+      <div className="map-status-strip">
+        <div className="location-control" ref={locationMenuRef}>
+          <button className="status-location" type="button" aria-expanded={locationMenuOpen} aria-controls="location-options" onClick={() => setLocationMenuOpen((open) => !open)}>
+            <MapPin size={14} /><span>{app.locationStatus === 'granted' ? 'Your location' : app.locationStatus === 'manual' ? 'Pinned location' : app.locationStatus === 'requesting' ? 'Finding location…' : 'Kolkata, West Bengal'}</span><ChevronDown size={13} />
+          </button>
+          {locationMenuOpen && <div id="location-options" className="location-menu">
+            <button type="button" onClick={chooseLocation}><LocateFixed size={15} />Use device location</button>
+            <button type="button" onClick={chooseApproximate}><MapPin size={15} />Use Kolkata center</button>
+            <button type="button" onClick={toggleManualLocation}><Crosshair size={15} />Enter coordinates</button>
+            <button type="button" onClick={startLocationPick}><MapPin size={15} />Pick on map</button>
+            {manualLocationOpen && <form className="manual-location-form" onSubmit={applyManualLocation} noValidate>
+              <label>Latitude<input aria-label="Latitude" type="number" step="any" value={manualLatitude} onChange={(event) => setManualLatitude(event.target.value)} /></label>
+              <label>Longitude<input aria-label="Longitude" type="number" step="any" value={manualLongitude} onChange={(event) => setManualLongitude(event.target.value)} /></label>
+              {manualLocationError && <p className="manual-location-error" role="alert">{manualLocationError}</p>}
+              <button className="manual-location-submit" type="submit">Set this location</button>
+            </form>}
+          </div>}
+        </div>
+        <span className="pandal-total">{app.isLoading ? 'Finding pandals…' : `${visiblePandals.length} pandals nearby`}</span>
+      </div>
+      {locationPicking && <div className="location-pick-banner" role="status"><Crosshair size={15} /><span>Click the map to set your location.</span><button type="button" onClick={() => setLocationPicking(false)}>Cancel</button></div>}
       {showApproximateBanner && <div className="approximate-banner" role="status"><LocateFixed size={15} /><span>Using approximate location.</span><button type="button" aria-label="Dismiss approximate location notice" onClick={() => setApproximateBannerDismissed(true)}><X size={14} /></button></div>}
       <div className="map-tools"><button className="map-tool-button" type="button" aria-label="Recenter map" onClick={() => window.dispatchEvent(new CustomEvent('pandal-recenter'))}><LocateFixed size={17} /></button></div>
       {app.isLoading && <div className="map-loading" aria-label="Loading pandals"><span /><span /><span /></div>}
