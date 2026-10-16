@@ -1,4 +1,4 @@
-import { Clock3, Map, Navigation2, RefreshCw, Route, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, Clock3, Map, Navigation2, RefreshCw, Route, X } from 'lucide-react'
 import type { RoutePlan, RoutePreference, TravelMode } from '../types'
 import { formatDuration } from '../utils/formatDuration'
 import { TrafficLegend } from './TrafficLegend'
@@ -12,6 +12,8 @@ interface RouteSummaryProps {
   onClose: () => void
   busy: boolean
   routeNeedsUpdate: boolean
+  collapsed: boolean
+  onToggleCollapsed: () => void
 }
 
 const travelModeLabels: Record<TravelMode, string> = {
@@ -22,13 +24,27 @@ const travelModeLabels: Record<TravelMode, string> = {
   transit: 'Public transit',
 }
 
-export function RouteSummary({ routePlan, onReoptimize, onPreferenceChange, onTravelModeChange, onDirections, onClose, busy, routeNeedsUpdate }: RouteSummaryProps) {
+export function RouteSummary({ routePlan, onReoptimize, onPreferenceChange, onTravelModeChange, onDirections, onClose, busy, routeNeedsUpdate, collapsed, onToggleCollapsed }: RouteSummaryProps) {
   return (
-    <section className="route-summary" role="dialog" aria-label="Route summary">
+    <section className={`route-summary${collapsed ? ' is-collapsed' : ''}`} role="dialog" aria-label="Route summary">
       <header className="route-summary-head">
-        <div className="route-summary-title"><div className="route-icon"><Route size={17} /></div><div><p className="eyebrow">Your Pujo trail · {travelModeLabels[routePlan.travelMode]}</p><h2>Route comparison</h2></div><span className={`traffic-source ${routePlan.trafficSource}`}>{routePlan.trafficSource === 'live' ? 'TomTom traffic' : 'ETA estimate'}</span></div>
+        {collapsed ? (
+          <div className="route-summary-compact">
+            <div className="route-icon"><Route size={17} /></div>
+            <div className="route-summary-compact-copy">
+              <strong>{routePlan.orderedStops.length} pandals · {formatDuration(routePlan.totalDurationMin)}</strong>
+              <span>{routeNeedsUpdate ? 'Route needs update' : routePlan.trafficSource === 'live' ? 'TomTom traffic' : 'ETA estimate'}</span>
+            </div>
+          </div>
+        ) : (
+          <div className="route-summary-title"><div className="route-icon"><Route size={17} /></div><div><p className="eyebrow">Your Pujo trail · {travelModeLabels[routePlan.travelMode]}</p><h2>Route comparison</h2></div><span className={`traffic-source ${routePlan.trafficSource}`}>{routePlan.trafficSource === 'live' ? 'TomTom traffic' : 'ETA estimate'}</span></div>
+        )}
+        <div className="route-summary-actions">
+          <button className="icon-button route-summary-toggle" aria-label={collapsed ? 'Expand route summary' : 'Minimize route summary'} aria-expanded={!collapsed} onClick={onToggleCollapsed}>{collapsed ? <ChevronUp size={18} /> : <ChevronDown size={18} />}</button>
         <button className="icon-button" aria-label="Hide route summary" onClick={onClose}><X size={17} /></button>
+        </div>
       </header>
+      {!collapsed && <>
       {routeNeedsUpdate && <p className="route-update-notice" role="status">New pandals are queued. The map and traffic below show the previous route until you update it.</p>}
       <div className="route-totals">
         <div><Navigation2 size={15} /><strong>{routePlan.totalDistanceKm.toFixed(1)} <small>km</small></strong><span>Total distance</span></div>
@@ -72,6 +88,7 @@ export function RouteSummary({ routePlan, onReoptimize, onPreferenceChange, onTr
       <button className="reoptimize-button" type="button" onClick={onReoptimize} disabled={busy}><RefreshCw size={15} className={busy ? 'spin' : ''} />{busy ? 'Planning…' : routeNeedsUpdate ? 'Update route with queued pandals' : (routePlan.trafficSource === 'live' ? 'Re-optimize with live traffic' : 'Re-plan route')}</button>
       <p className="route-disclaimer">{routePlan.travelMode === 'transit' ? 'Transit times are rough estimates, not live schedules. Open Google Maps for real routes and departures.' : routePlan.trafficSource === 'live' ? 'Driving ETA includes traffic from TomTom. Live traffic changes; ETA uses the provider’s traffic-aware duration.' : `Live congestion data is unavailable. ${travelModeLabels[routePlan.travelMode]} ETA uses typical route durations, not current traffic.`}</p>
       <p className="route-map-hint">Tap a numbered stop or colored route segment for leg details.</p>
+      </>}
     </section>
   )
 }

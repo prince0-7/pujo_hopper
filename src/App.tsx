@@ -22,6 +22,7 @@ function App() {
   const [routeBusy, setRouteBusy] = useState(false)
   const [routePreference, setRoutePreference] = useState<RoutePreference>('fastest')
   const [travelMode, setTravelMode] = useState<TravelMode>('driving')
+  const [routeSummaryCollapsed, setRouteSummaryCollapsed] = useState(false)
   const [directionsOpen, setDirectionsOpen] = useState(false)
   const [toast, setToast] = useState('')
   const [locationMenuOpen, setLocationMenuOpen] = useState(false)
@@ -155,6 +156,7 @@ function App() {
         currentPandalIds.some((id, index) => id !== pandalIds[index])
       ) return
       app.setRoutePlan(route)
+      setRouteSummaryCollapsed(false)
       setRoutePreference(preference)
       setTravelMode(mode)
       setDirectionsOpen(false)
@@ -206,7 +208,7 @@ function App() {
       {app.isLoading && <div className="map-loading" aria-label="Loading pandals"><span /><span /><span /></div>}
       {!app.isLoading && visiblePandals.length === 0 && <div className="map-empty" role="status"><div className="empty-map-icon"><MapPin size={17} /></div><div><strong>No pandals in this radius</strong><span>Try a wider search or another zone.</span></div></div>}
       {app.routePlan && directionsOpen && <DirectionsPanel routePlan={app.routePlan} onBack={() => setDirectionsOpen(false)} />}
-      {app.routePlan && !directionsOpen && <RouteSummary routePlan={app.routePlan} routeNeedsUpdate={routeNeedsUpdate} onReoptimize={() => { void handlePlanRoute(routePreference, travelMode) }} onPreferenceChange={(preference) => { void handlePlanRoute(preference, travelMode) }} onTravelModeChange={(mode) => { void handlePlanRoute(routePreference, mode) }} onDirections={() => setDirectionsOpen(true)} onClose={() => app.setRoutePlan(null)} busy={routeBusy} />}
+      {app.routePlan && !directionsOpen && <RouteSummary routePlan={app.routePlan} routeNeedsUpdate={routeNeedsUpdate} collapsed={routeSummaryCollapsed} onToggleCollapsed={() => setRouteSummaryCollapsed((collapsed) => !collapsed)} onReoptimize={() => { void handlePlanRoute(routePreference, travelMode) }} onPreferenceChange={(preference) => { void handlePlanRoute(preference, travelMode) }} onTravelModeChange={(mode) => { void handlePlanRoute(routePreference, mode) }} onDirections={() => setDirectionsOpen(true)} onClose={() => app.setRoutePlan(null)} busy={routeBusy} />}
       <ZoneBar selectedZone={app.selectedZone} radiusKm={app.radiusKm} travelMode={travelMode} onTravelModeChange={(mode) => { if (app.routePlan) void handlePlanRoute(routePreference, mode); else setTravelMode(mode) }} onZoneChange={(zone) => { if (zone === 'Kalyani') app.setRadiusKm(Math.max(app.radiusKm, 60)); if (zone === 'Other areas') app.setRadiusKm(Math.max(app.radiusKm, 30)); void app.setSelectedZone(zone) }} onRadiusChange={app.setRadiusKm} onPlanRoute={() => handlePlanRoute(routePreference, travelMode)} routeBusy={routeBusy} stopCount={app.visitingList.length} />
       <VisitingDrawer open={drawerOpen} pandals={app.visitingList} onClose={() => setDrawerOpen(false)} onRemove={app.removeFromRoute} onReorder={app.reorderVisitingList} />
       {(toast || app.error) && <div className="toast-message" role="status"><Bell size={15} />{toast || app.error}<button aria-label="Dismiss notification" onClick={() => { setToast(''); setError(null) }}><X size={13} /></button></div>}

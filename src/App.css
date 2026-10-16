@@ -180,6 +180,12 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(214, 154, 50
 @keyframes panel-enter { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: translateY(0); } }
 .route-summary-head, .route-summary-title { display: flex; align-items: center; }
 .route-summary-head { justify-content: space-between; }
+.route-summary-actions { display: flex; flex: 0 0 auto; }
+.route-summary-compact { display: flex; min-width: 0; align-items: center; gap: 9px; }
+.route-summary-compact-copy { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.route-summary-compact-copy strong { overflow: hidden; color: #393127; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.route-summary-compact-copy span { color: #766c60; font-size: 10px; }
+.route-summary.is-collapsed { bottom: auto; min-height: 62px; justify-content: center; overflow: hidden; padding: 8px 12px; }
 .route-summary-title { gap: 9px; }
 .traffic-source { margin-left: 3px; padding: 4px 6px; border-radius: 3px; font-size: 9px; font-weight: 700; white-space: nowrap; }
 .traffic-source.live { background: #e3f2e8; color: #286c49; }
