@@ -1,3 +1,4 @@
+import logging
 import math
 import os
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -5,6 +6,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import requests
 
 
+logger = logging.getLogger(__name__)
 TOMTOM_MATRIX_URL = "https://api.tomtom.com/routing/1/matrix/sync/json"
 OSRM_ROUTE_URL = os.getenv(
     "OSRM_ROUTE_URL", "https://router.project-osrm.org/route/v1/driving"
@@ -12,7 +14,27 @@ OSRM_ROUTE_URL = os.getenv(
 TOMTOM_API_KEY = os.getenv("TOMTOM_API_KEY")
 MATRIX_TIMEOUT_SECONDS = 20.0
 GEOMETRY_TIMEOUT_SECONDS = 8.0
-FALLBACK_SPEED_KMH = 20.0
+OSRM_TABLE_TIMEOUT_SECONDS = 8.0
+OSRM_TABLE_URL = os.getenv(
+    "OSRM_TABLE_URL", OSRM_ROUTE_URL.replace("/route/v1/", "/table/v1/")
+)
+VALHALLA_URL = os.getenv("VALHALLA_URL", "https://valhalla1.openstreetmap.de").rstrip("/")
+VALHALLA_TIMEOUT_SECONDS = 12.0
+VALHALLA_COSTING = {
+    "walking": "pedestrian",
+    "driving": "auto",
+    "cycling": "bicycle",
+    "motorcycle": "motorcycle",
+    "transit": "pedestrian",
+}
+FALLBACK_SPEEDS_KMH = {
+    "walking": 4.8,
+    "driving": 20.0,
+    "cycling": 15.0,
+    "motorcycle": 25.0,
+    "transit": 18.0,
+}
+RouteMatrices = Tuple[List[List[float]], List[List[float]], List[List[float]]]
 
 
 class MatrixRoutingUnavailableError(RuntimeError):
@@ -153,17 +175,113 @@ def _get_tomtom_matrix(
 
 def _fallback_matrices(
     locations: Sequence[Tuple[float, float]],
+    travel_mode: str = "driving",
 ) -> Tuple[List[List[float]], List[List[float]], List[List[float]]]:
+    costing = VALHALLA_COSTING[travel_mode]
+    coordinates = ";".join(
+        f"{longitude},{latitude}" for latitude, longitude in locations
+    )
+    try:
+        if travel_mode == "driving":
+            response = requests.get(
+                f"{OSRM_TABLE_URL}/{coordinates}",
+                params={"annotations": "distance,duration"},
+                headers={"User-Agent": "PandalRouter/1.0"},
+                timeout=OSRM_TABLE_TIMEOUT_SECONDS,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            distances = payload["distances"]
+            durations = payload["durations"]
+            expected_size = len(locations)
+            if (
+                payload.get("code") != "Ok"
+                or len(distances) != expected_size
+                or len(durations) != expected_size
+                or any(len(row) != expected_size for row in distances)
+                or any(len(row) != expected_size for row in durations)
+            ):
+                raise ValueError("OSRM returned an incomplete routing table")
+            road_distances = [[float(value) for value in row] for row in distances]
+            road_durations = [[float(value) for value in row] for row in durations]
+        else:
+            response = requests.post(
+                f"{VALHALLA_URL}/sources_to_targets",
+                json={
+                    "sources": [{"lat": lat, "lon": lon} for lat, lon in locations],
+                    "targets": [{"lat": lat, "lon": lon} for lat, lon in locations],
+                    "costing": costing,
+                    "units": "kilometers",
+                },
+                headers={"User-Agent": "PandalRouter/1.0"},
+                timeout=VALHALLA_TIMEOUT_SECONDS,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            matrix = payload["sources_to_targets"]
+            expected_size = len(locations)
+            if (
+                len(matrix) != expected_size
+                or any(len(row) != expected_size for row in matrix)
+            ):
+                raise ValueError("Valhalla returned an incomplete routing matrix")
+            road_distances = [
+                [float(cell["distance"]) * 1000 for cell in row] for row in matrix
+            ]
+            road_durations = [
+                [float(cell["time"]) for cell in row] for row in matrix
+            ]
+        if any(
+            not math.isfinite(value) or value < 0
+            for matrix in (road_distances, road_durations)
+            for row in matrix
+            for value in row
+        ):
+            raise ValueError("Routing provider returned invalid distance or duration values")
+        return road_distances, road_durations, [
+            [0.0 for _ in row] for row in road_distances
+        ]
+    except (requests.RequestException, KeyError, TypeError, ValueError) as error:
+        logger.warning(
+            "%s routing matrix unavailable; using distance-based estimates: %s",
+            "OSRM" if travel_mode == "driving" else "Valhalla",
+            error,
+        )
+
     distances = [
-        [_haversine_distance(origin, destination) * 1000 for destination in locations]
+        [
+            _haversine_distance(origin, destination) * 1000 * (1.2 if travel_mode != "walking" else 1.15)
+            for destination in locations
+        ]
         for origin in locations
     ]
     durations = [
-        [distance / (FALLBACK_SPEED_KMH * 1000 / 3600) for distance in row]
+        [
+            distance / (FALLBACK_SPEEDS_KMH[travel_mode] * 1000 / 3600)
+            for distance in row
+        ]
         for row in distances
     ]
     traffic_delays = [[0.0 for _ in row] for row in distances]
     return distances, durations, traffic_delays
+
+
+def get_route_matrices_by_preference(
+    locations: Sequence[Tuple[float, float]],
+    travel_mode: str,
+) -> Tuple[RouteMatrices, RouteMatrices, bool]:
+    if travel_mode == "driving" and TOMTOM_API_KEY:
+        try:
+            fastest_matrices = _get_tomtom_matrix(locations, route_type="fastest")
+            shortest_matrices = _get_tomtom_matrix(locations, route_type="shortest")
+            return fastest_matrices, shortest_matrices, True
+        except MatrixRoutingUnavailableError as error:
+            logger.warning(
+                "TomTom comparison matrices unavailable; using estimated driving costs: %s",
+                error,
+            )
+    fallback = _fallback_matrices(locations, travel_mode)
+    return fallback, fallback, False
 
 
 def _maneuver_instruction(maneuver: Dict[str, Any], road_name: str) -> str:
@@ -192,19 +310,94 @@ def _maneuver_instruction(maneuver: Dict[str, Any], road_name: str) -> str:
 
 def get_road_leg_details(
     locations: Sequence[Tuple[float, float]],
+    travel_mode: str = "driving",
 ) -> Tuple[List[List[List[float]]], List[List[Dict[str, Any]]]]:
-    """Fetch road geometry and maneuvers, with direct-route fallback."""
+    """Fetch mode-specific geometry and maneuvers, with a direct-route fallback."""
     fallback = [
         [[origin[0], origin[1]], [destination[0], destination[1]]]
         for origin, destination in zip(locations, locations[1:])
     ]
     if len(locations) < 2:
         return [], []
+    if travel_mode == "transit":
+        geometries, _ = get_road_leg_details(locations, "walking")
+        directions = []
+        for index, (destination, geometry) in enumerate(
+            zip(locations[1:], geometries)
+        ):
+            distance_km = sum(
+                _haversine_distance(
+                    (point_a[0], point_a[1]), (point_b[0], point_b[1])
+                )
+                for point_a, point_b in zip(geometry, geometry[1:])
+            )
+            directions.append(
+                [
+                    {
+                        "instruction": (
+                            f"Transit estimate to stop {index + 1}; "
+                            "check Google Maps for live routes and schedules"
+                        ),
+                        "distance_km": round(distance_km, 2),
+                        "duration_min": math.ceil(
+                            distance_km / FALLBACK_SPEEDS_KMH["transit"] * 60 + 10
+                        ),
+                        "location": {
+                            "lat": destination[0],
+                            "lng": destination[1],
+                        },
+                    }
+                ]
+            )
+        return geometries, directions
 
-    coordinates = ";".join(
-        f"{longitude},{latitude}" for latitude, longitude in locations
-    )
     try:
+        if travel_mode != "driving":
+            response = requests.post(
+                f"{VALHALLA_URL}/route",
+                json={
+                    "locations": [
+                        {"lat": latitude, "lon": longitude}
+                        for latitude, longitude in locations
+                    ],
+                    "costing": VALHALLA_COSTING[travel_mode],
+                    "units": "kilometers",
+                    "directions_options": {"units": "kilometers"},
+                },
+                headers={"User-Agent": "PandalRouter/1.0"},
+                timeout=VALHALLA_TIMEOUT_SECONDS,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            route_legs = payload["trip"]["legs"]
+            if len(route_legs) != len(fallback):
+                raise ValueError("Valhalla returned an unexpected number of route legs")
+
+            geometries = []
+            directions = []
+            for leg in route_legs:
+                points = _decode_polyline6(leg["shape"])
+                leg_directions = [
+                    {
+                        "instruction": str(step["instruction"]),
+                        "distance_km": round(float(step.get("length", 0.0)), 2),
+                        "duration_min": math.ceil(float(step.get("time", 0.0)) / 60),
+                        "location": {
+                            "lat": points[min(int(step.get("end_shape_index", 0)), len(points) - 1)][0],
+                            "lng": points[min(int(step.get("end_shape_index", 0)), len(points) - 1)][1],
+                        },
+                    }
+                    for step in leg.get("maneuvers", [])
+                ]
+                if len(points) < 2 or not leg_directions:
+                    raise ValueError("Valhalla returned incomplete route details")
+                geometries.append(points)
+                directions.append(leg_directions)
+            return geometries, directions
+
+        coordinates = ";".join(
+            f"{longitude},{latitude}" for latitude, longitude in locations
+        )
         response = requests.get(
             f"{OSRM_ROUTE_URL}/{coordinates}",
             params={
@@ -240,7 +433,7 @@ def get_road_leg_details(
                             maneuver, str(step.get("name", ""))
                         ),
                         "distance_km": round(float(step.get("distance", 0.0)) / 1000, 2),
-                        "duration_min": round(float(step.get("duration", 0.0)) / 60, 1),
+                        "duration_min": math.ceil(float(step.get("duration", 0.0)) / 60),
                         "location": {"lat": float(latitude), "lng": float(longitude)},
                     }
                 )
@@ -250,22 +443,36 @@ def get_road_leg_details(
                     {
                         "instruction": "Continue along the planned route",
                         "distance_km": round(float(leg.get("distance", 0.0)) / 1000, 2),
-                        "duration_min": round(float(leg.get("duration", 0.0)) / 60, 1),
+                        "duration_min": math.ceil(float(leg.get("duration", 0.0)) / 60),
                         "location": {"lat": locations[len(directions) + 1][0], "lng": locations[len(directions) + 1][1]},
                     }
                 )
             directions.append(leg_directions)
         return geometries, directions
-    except (requests.RequestException, KeyError, IndexError, TypeError, ValueError):
+    except (requests.RequestException, KeyError, IndexError, TypeError, ValueError) as error:
+        logger.warning(
+            "%s route geometry unavailable; using direct segments: %s",
+            "Valhalla" if travel_mode != "driving" else "OSRM",
+            error,
+        )
         directions = []
         for index, (origin, destination) in enumerate(zip(locations, locations[1:])):
             distance_km = _haversine_distance(origin, destination)
+            if travel_mode != "driving":
+                distance_km *= 1.2 if travel_mode != "walking" else 1.15
             directions.append(
                 [
                     {
-                        "instruction": "Continue along the planned route",
+                        "instruction": (
+                            f"Continue toward stop {index + 1}"
+                            if travel_mode == "transit"
+                            else "Continue along the planned route"
+                        ),
                         "distance_km": round(distance_km, 2),
-                        "duration_min": round(distance_km / FALLBACK_SPEED_KMH * 60, 1),
+                        "duration_min": math.ceil(
+                            distance_km / FALLBACK_SPEEDS_KMH[travel_mode] * 60
+                            + (10 if travel_mode == "transit" else 0)
+                        ),
                         "location": {"lat": destination[0], "lng": destination[1]},
                     }
                 ]
@@ -280,9 +487,31 @@ def get_road_leg_geometries(
     return get_road_leg_details(locations)[0]
 
 
+def _decode_polyline6(encoded: str) -> List[List[float]]:
+    coordinates = []
+    latitude = longitude = 0
+    index = 0
+    while index < len(encoded):
+        deltas = []
+        for _ in range(2):
+            result = shift = 0
+            while True:
+                byte = ord(encoded[index]) - 63
+                index += 1
+                result |= (byte & 0x1F) << shift
+                shift += 5
+                if byte < 0x20:
+                    break
+            deltas.append(~(result >> 1) if result & 1 else result >> 1)
+        latitude += deltas[0]
+        longitude += deltas[1]
+        coordinates.append([latitude / 1_000_000, longitude / 1_000_000])
+    return coordinates
+
+
 def _traffic_level(travel_time_s: float, traffic_delay_s: float, is_live: bool) -> str:
     if not is_live:
-        return "moderate"
+        return "unavailable"
     free_flow_time_s = max(travel_time_s - traffic_delay_s, 1.0)
     delay_ratio = traffic_delay_s / free_flow_time_s
     if delay_ratio >= 0.45:
@@ -298,33 +527,67 @@ def optimize_pandal_route(
     traffic_multiplier: float = 1.0,
     max_pandals: Optional[int] = None,
     preference: str = "fastest",
+    travel_mode: str = "driving",
+    matrices: Optional[RouteMatrices] = None,
+    live_traffic: Optional[bool] = None,
 ) -> Dict[str, Any]:
-    """Order stops with a nearest-neighbor TSP heuristic over road costs."""
+    """Order stops using a nearest-neighbor heuristic over mode-specific costs."""
     if preference not in {"fastest", "shortest"}:
         raise ValueError("preference must be 'fastest' or 'shortest'")
+    if travel_mode not in VALHALLA_COSTING:
+        raise ValueError("travel_mode must be one of the supported travel modes")
     target_pandals = pandals[:max_pandals] if max_pandals is not None else pandals
     if not target_pandals:
         return {
             "total_distance_km": 0.0,
             "total_time_mins": 0.0,
+            "average_speed_kmh": 0.0,
             "pandal_sequence": [],
             "traffic_source": "estimated",
             "preference": preference,
+            "travel_mode": travel_mode,
         }
 
     locations = [start_loc, *(_coordinates(pandal) for pandal in target_pandals)]
-    is_live_traffic = bool(TOMTOM_API_KEY)
-    try:
-        distance_matrix, duration_matrix, traffic_delay_matrix = _get_tomtom_matrix(
-            locations, route_type=preference
+    is_live_traffic = (
+        bool(TOMTOM_API_KEY) and travel_mode == "driving"
+        if live_traffic is None
+        else live_traffic
+    )
+    if matrices is not None:
+        distance_matrix, duration_matrix, traffic_delay_matrix = matrices
+    elif is_live_traffic:
+        try:
+            distance_matrix, duration_matrix, traffic_delay_matrix = _get_tomtom_matrix(
+                locations, route_type=preference
+            )
+        except MatrixRoutingUnavailableError:
+            distance_matrix, duration_matrix, traffic_delay_matrix = _fallback_matrices(
+                locations, travel_mode
+            )
+            is_live_traffic = False
+    else:
+        distance_matrix, duration_matrix, traffic_delay_matrix = _fallback_matrices(
+            locations, travel_mode
         )
-    except MatrixRoutingUnavailableError:
-        distance_matrix, duration_matrix, traffic_delay_matrix = _fallback_matrices(locations)
-        is_live_traffic = False
+    if travel_mode == "transit":
+        duration_matrix = [
+            [
+                (
+                    distance / (FALLBACK_SPEEDS_KMH["transit"] * 1000 / 3600)
+                    + (600 if origin != destination else 0)
+                    if origin != destination
+                    else 0
+                )
+                for destination, distance in enumerate(distance_row)
+            ]
+            for origin, distance_row in enumerate(distance_matrix)
+        ]
 
     unvisited = set(range(1, len(locations)))
     current_index = 0
     total_distance_m = 0.0
+    total_duration_mins = 0
     total_duration_s = 0.0
     sequence = []
     cost_matrix = distance_matrix if preference == "shortest" else duration_matrix
@@ -338,7 +601,9 @@ def optimize_pandal_route(
         traffic_delay_s = float(traffic_delay_matrix[current_index][next_index])
         pandal = target_pandals[next_index - 1]
         total_distance_m += distance_m
-        total_duration_s += duration_s
+        total_duration_s += duration_s * traffic_multiplier
+        duration_min = math.ceil(duration_s / 60 * traffic_multiplier)
+        total_duration_mins += duration_min
         sequence.append(
             {
                 "step_number": len(sequence) + 1,
@@ -347,9 +612,7 @@ def optimize_pandal_route(
                 "latitude": pandal["latitude"],
                 "longitude": pandal["longitude"],
                 "distance_from_prev_km": round(distance_m / 1000, 2),
-                "estimated_time_mins": round(
-                    duration_s / 60 * traffic_multiplier, 1
-                ),
+                "estimated_time_mins": duration_min,
                 "traffic_level": _traffic_level(
                     duration_s, traffic_delay_s, is_live_traffic
                 ),
@@ -360,8 +623,12 @@ def optimize_pandal_route(
 
     return {
         "total_distance_km": round(total_distance_m / 1000, 2),
-        "total_time_mins": round(total_duration_s / 60 * traffic_multiplier, 1),
+        "total_time_mins": total_duration_mins,
+        "average_speed_kmh": (
+            total_distance_m / total_duration_s * 3.6 if total_duration_s > 0 else 0.0
+        ),
         "pandal_sequence": sequence,
         "traffic_source": "live" if is_live_traffic else "estimated",
         "preference": preference,
+        "travel_mode": travel_mode,
     }

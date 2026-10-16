@@ -1,17 +1,10 @@
 import { ArrowLeft, ArrowUpRight, Clock3, ExternalLink, MapPin, Navigation2, Route } from 'lucide-react'
 import type { RoutePlan } from '../types'
+import { formatDuration } from '../utils/formatDuration'
 
 interface DirectionsPanelProps {
   routePlan: RoutePlan
   onBack: () => void
-}
-
-function formatDuration(minutes: number) {
-  if (minutes < 1) return `${Math.max(1, Math.round(minutes * 60))} sec`
-  const rounded = Math.round(minutes)
-  const hours = Math.floor(rounded / 60)
-  const remainder = rounded % 60
-  return hours > 0 ? `${hours} hr ${remainder} min` : `${rounded} min`
 }
 
 function getGoogleMapsUrl(routePlan: RoutePlan) {
@@ -19,11 +12,18 @@ function getGoogleMapsUrl(routePlan: RoutePlan) {
   const lastLeg = routePlan.legs.at(-1)
   if (!firstLeg || !lastLeg) return null
 
+  const travelmode = {
+    walking: 'walking',
+    driving: 'driving',
+    cycling: 'bicycling',
+    motorcycle: 'driving',
+    transit: 'transit',
+  }[routePlan.travelMode]
   const params = new URLSearchParams({
     api: '1',
     origin: `${firstLeg.from.lat},${firstLeg.from.lng}`,
     destination: `${lastLeg.to.lat},${lastLeg.to.lng}`,
-    travelmode: 'driving',
+    travelmode,
   })
   const waypoints = routePlan.orderedStops.slice(0, -1).map((stop) => `${stop.lat},${stop.lng}`)
   if (waypoints.length) params.set('waypoints', waypoints.join('|'))
@@ -37,8 +37,8 @@ export function DirectionsPanel({ routePlan, onBack }: DirectionsPanelProps) {
     <section className="directions-panel" aria-label="Turn-by-turn directions">
       <header className="directions-header">
         <button className="icon-button directions-back" type="button" onClick={onBack} aria-label="Back to route summary"><ArrowLeft size={18} /></button>
-        <div className="directions-heading"><p className="eyebrow">{routePlan.preference === 'shortest' ? 'Shortest distance' : 'Fastest route'}</p><h2>Directions</h2></div>
-        <span className={`traffic-source ${routePlan.trafficSource}`}>{routePlan.trafficSource === 'live' ? 'Live traffic' : 'Estimate'}</span>
+        <div className="directions-heading"><p className="eyebrow">{routePlan.preference === 'shortest' ? 'Shortest distance' : 'Fastest route'} · {routePlan.travelMode}</p><h2>Directions</h2></div>
+        <span className={`traffic-source ${routePlan.trafficSource}`}>{routePlan.trafficSource === 'live' ? 'TomTom traffic' : 'ETA estimate'}</span>
       </header>
 
       <div className="directions-totals">
@@ -62,7 +62,8 @@ export function DirectionsPanel({ routePlan, onBack }: DirectionsPanelProps) {
               <div className="directions-leg-heading">
                 <span className="directions-leg-number">{legIndex + 1}</span>
                 <div><strong>{fromName}</strong><span className="directions-to"><ArrowUpRight size={12} /> {toName}</span></div>
-                <span className={`directions-traffic traffic-${leg.trafficLevel}`} aria-label={`${leg.trafficLevel} traffic`} />
+                <span className={`directions-traffic traffic-${leg.trafficLevel}`} aria-hidden="true" />
+                <span className={`directions-traffic-label traffic-${leg.trafficLevel}`}>{leg.trafficLevel === 'unavailable' ? 'traffic n/a' : leg.trafficLevel}{routePlan.trafficSource === 'live' ? ' · live' : ''}</span>
               </div>
               <ol className="maneuver-list">
                 {leg.steps.map((step, stepIndex) => (
@@ -76,7 +77,7 @@ export function DirectionsPanel({ routePlan, onBack }: DirectionsPanelProps) {
           )
         })}
       </ol>
-      <p className="directions-disclaimer">Google Maps may recalculate based on current road conditions.</p>
+      <p className="directions-disclaimer">{routePlan.travelMode === 'transit' ? 'Transit estimates are approximate. Open Google Maps above for live routes, transfers, and departure times.' : 'Google Maps may recalculate based on current road conditions.'}</p>
     </section>
   )
 }

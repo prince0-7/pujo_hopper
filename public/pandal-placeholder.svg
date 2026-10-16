@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 420" role="img" aria-labelledby="title">
+  <title id="title">Illustration of a Durga Puja pandal</title>
+  <defs>
+    <linearGradient id="sky" x2="0" y2="1">
+      <stop stop-color="#fff4d9"/>
+      <stop offset="1" stop-color="#f3d6a2"/>
+    </linearGradient>
+    <linearGradient id="pandal" x2="0" y2="1">
+      <stop stop-color="#d65b3e"/>
+      <stop offset="1" stop-color="#8e2c2c"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#sky)" d="M0 0h900v420H0z"/>
+  <circle cx="740" cy="90" r="42" fill="#f2bc58" opacity=".8"/>
+  <path fill="#f7e5be" d="M0 321q225-37 450 0t450 0v99H0z"/>
+  <path fill="#d9ad72" d="M75 349h750v71H75z"/>
+  <path fill="#f8e5bc" d="M116 315h668v34H116z"/>
+  <path fill="url(#pandal)" d="M164 204h572v111H164z"/>
+  <path fill="#9b3630" d="M128 204 450 99l322 105z"/>
+  <path fill="#efbd67" d="m189 199 261-85 261 85z"/>
+  <path fill="#f8e5bc" d="M216 207h468v14H216z"/>
+  <path fill="#edb857" d="M231 224h438v10H231z"/>
+  <path fill="#f8e5bc" d="M225 244h18v71h-18zm72 0h18v71h-18zm72 0h18v71h-18zm72 0h18v71h-18zm72 0h18v71h-18zm72 0h18v71h-18zm72 0h18v71h-18z"/>
+  <path fill="#6c2929" d="M385 264h130v51H385z"/>
+  <path fill="#efbd67" d="M370 257h160v10H370z"/>
+  <path fill="#a83b32" d="M0 367q225-24 450 0t450 0v53H0z"/>
+  <path fill="#f3ce88" d="M0 384q225-24 450 0t450 0v9q-225 24-450 0T0 393z"/>
+</svg>

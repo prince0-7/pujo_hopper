@@ -6,11 +6,23 @@ const traffic: { level: TrafficLevel; label: string }[] = [
   { level: 'heavy', label: 'Heavy' },
 ]
 
-export function TrafficLegend() {
+export function TrafficLegend({ trafficAvailable }: { trafficAvailable: boolean }) {
   return (
     <div className="traffic-legend" aria-label="Route traffic legend">
-      <span className="legend-title">Traffic</span>
-      {traffic.map(({ level, label }) => <span className={`legend-item traffic-${level}`} key={level}><i aria-hidden="true" />{label}</span>)}
+      {trafficAvailable ? (
+        <>
+          <span className="legend-title">Route</span>
+          <span className="legend-item planned-route"><i aria-hidden="true" />Planned</span>
+          <span className="legend-title">TomTom traffic</span>
+          {traffic.map(({ level, label }) => <span className={`legend-item traffic-${level}`} key={level}><i aria-hidden="true" />{label}</span>)}
+        </>
+      ) : (
+        <>
+          <span className="legend-title">Route</span>
+          <span className="legend-item planned-route"><i aria-hidden="true" />Planned</span>
+          <span className="traffic-unavailable-note">Live traffic unavailable; showing typical travel estimates.</span>
+        </>
+      )}
     </div>
   )
 }

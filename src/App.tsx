@@ -9,7 +9,7 @@ import { ZoneBar } from './components/ZoneBar'
 import { useGeolocation } from './hooks/useGeolocation'
 import { planRoute } from './services/api'
 import { useAppStore } from './store/useAppStore'
-import type { RoutePreference } from './types'
+import type { RoutePreference, TravelMode } from './types'
 import { haversine } from './utils/geo'
 import './App.css'
 
@@ -21,6 +21,7 @@ function App() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [routeBusy, setRouteBusy] = useState(false)
   const [routePreference, setRoutePreference] = useState<RoutePreference>('fastest')
+  const [travelMode, setTravelMode] = useState<TravelMode>('driving')
   const [directionsOpen, setDirectionsOpen] = useState(false)
   const [toast, setToast] = useState('')
 
@@ -54,14 +55,15 @@ function App() {
     setApproximateLocation()
   }
 
-  async function handlePlanRoute(preference: RoutePreference = routePreference) {
+  async function handlePlanRoute(preference: RoutePreference = routePreference, mode: TravelMode = travelMode) {
     if (!app.visitingList.length) return
     setRouteBusy(true)
     app.setError(null)
     try {
-      const route = await planRoute({ origin: app.userLocation, pandalIds: app.visitingList.map((pandal) => pandal.id), algorithm: 'astar', preference })
+      const route = await planRoute({ origin: app.userLocation, pandalIds: app.visitingList.map((pandal) => pandal.id), algorithm: 'astar', preference, travelMode: mode })
       app.setRoutePlan(route)
       setRoutePreference(preference)
+      setTravelMode(mode)
       setDirectionsOpen(false)
       setDrawerOpen(false)
     } catch (error) {
@@ -90,8 +92,8 @@ function App() {
       {app.isLoading && <div className="map-loading" aria-label="Loading pandals"><span /><span /><span /></div>}
       {!app.isLoading && visiblePandals.length === 0 && <div className="map-empty" role="status"><div className="empty-map-icon"><MapPin size={17} /></div><div><strong>No pandals in this radius</strong><span>Try a wider search or another zone.</span></div></div>}
       {app.routePlan && directionsOpen && <DirectionsPanel routePlan={app.routePlan} onBack={() => setDirectionsOpen(false)} />}
-      {app.routePlan && !directionsOpen && <RouteSummary routePlan={app.routePlan} onReoptimize={() => { void handlePlanRoute(routePreference) }} onPreferenceChange={(preference) => { void handlePlanRoute(preference) }} onDirections={() => setDirectionsOpen(true)} onClose={() => app.setRoutePlan(null)} busy={routeBusy} />}
-      <ZoneBar selectedZone={app.selectedZone} radiusKm={app.radiusKm} onZoneChange={(zone) => { if (zone === 'Kalyani') app.setRadiusKm(Math.max(app.radiusKm, 60)); if (zone === 'Other areas') app.setRadiusKm(Math.max(app.radiusKm, 30)); void app.setSelectedZone(zone) }} onRadiusChange={app.setRadiusKm} onPlanRoute={handlePlanRoute} routeBusy={routeBusy} stopCount={app.visitingList.length} />
+      {app.routePlan && !directionsOpen && <RouteSummary routePlan={app.routePlan} onReoptimize={() => { void handlePlanRoute(routePreference, travelMode) }} onPreferenceChange={(preference) => { void handlePlanRoute(preference, travelMode) }} onTravelModeChange={(mode) => { void handlePlanRoute(routePreference, mode) }} onDirections={() => setDirectionsOpen(true)} onClose={() => app.setRoutePlan(null)} busy={routeBusy} />}
+      <ZoneBar selectedZone={app.selectedZone} radiusKm={app.radiusKm} travelMode={travelMode} onTravelModeChange={(mode) => { if (app.routePlan) void handlePlanRoute(routePreference, mode); else setTravelMode(mode) }} onZoneChange={(zone) => { if (zone === 'Kalyani') app.setRadiusKm(Math.max(app.radiusKm, 60)); if (zone === 'Other areas') app.setRadiusKm(Math.max(app.radiusKm, 30)); void app.setSelectedZone(zone) }} onRadiusChange={app.setRadiusKm} onPlanRoute={() => handlePlanRoute(routePreference, travelMode)} routeBusy={routeBusy} stopCount={app.visitingList.length} />
       <VisitingDrawer open={drawerOpen} pandals={app.visitingList} onClose={() => setDrawerOpen(false)} onRemove={app.removeFromRoute} onReorder={app.reorderVisitingList} />
       {(toast || app.error) && <div className="toast-message" role="status"><Bell size={15} />{toast || app.error}<button aria-label="Dismiss notification" onClick={() => { setToast(''); setError(null) }}><X size={13} /></button></div>}
       {permissionOpen && <PermissionModal onUseLocation={chooseLocation} onUseApproximate={chooseApproximate} />}

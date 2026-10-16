@@ -10,7 +10,12 @@ load_dotenv(Path(__file__).resolve().with_name(".env"))
 
 if __package__:
     from .pandal_data import PANDALS_DB
-    from .routing import TOMTOM_API_KEY, get_road_leg_details, optimize_pandal_route
+    from .routing import (
+        TOMTOM_API_KEY,
+        get_road_leg_details,
+        get_route_matrices_by_preference,
+        optimize_pandal_route,
+    )
     from .schemas import (
         ApiPandal,
         ApiRouteLeg,
@@ -23,7 +28,12 @@ if __package__:
     )
 else:
     from pandal_data import PANDALS_DB
-    from routing import TOMTOM_API_KEY, get_road_leg_details, optimize_pandal_route
+    from routing import (
+        TOMTOM_API_KEY,
+        get_road_leg_details,
+        get_route_matrices_by_preference,
+        optimize_pandal_route,
+    )
     from schemas import (
         ApiPandal,
         ApiRouteLeg,
@@ -75,6 +85,7 @@ def get_api_status():
     return {
         "trafficProvider": "tomtom" if TOMTOM_API_KEY else "estimated",
         "roadGeometryProvider": "osrm",
+        "modeRoutingProvider": "valhalla",
     }
 
 @app.get("/pandals", response_model=List[Pandal])
@@ -123,11 +134,33 @@ def plan_frontend_route(request: ApiRouteRequest):
         }
         for index, pandal in enumerate(selected)
     ]
-    result = optimize_pandal_route(
-        start_loc=(request.origin.lat, request.origin.lng),
-        pandals=optimizer_pandals,
-        preference=request.preference,
-    )
+    locations = [
+        (request.origin.lat, request.origin.lng),
+        *((pandal["latitude"], pandal["longitude"]) for pandal in optimizer_pandals),
+    ]
+    if optimizer_pandals:
+        fastest_matrices, shortest_matrices, live_traffic = (
+            get_route_matrices_by_preference(locations, request.travel_mode)
+        )
+    else:
+        fastest_matrices = shortest_matrices = None
+        live_traffic = False
+    matrices_by_preference = {
+        "fastest": fastest_matrices,
+        "shortest": shortest_matrices,
+    }
+    results = {
+        preference: optimize_pandal_route(
+            start_loc=(request.origin.lat, request.origin.lng),
+            pandals=optimizer_pandals,
+            preference=preference,
+            travel_mode=request.travel_mode,
+            matrices=matrices_by_preference[preference],
+            live_traffic=live_traffic,
+        )
+        for preference in ("fastest", "shortest")
+    }
+    result = results[request.preference]
 
     ordered_stops = [
         selected[step["pandal_id"]].copy()
@@ -139,7 +172,7 @@ def plan_frontend_route(request: ApiRouteRequest):
         (request.origin.lat, request.origin.lng),
         *((pandal["lat"], pandal["lng"]) for pandal in ordered_stops),
     ]
-    geometries, directions = get_road_leg_details(locations)
+    geometries, directions = get_road_leg_details(locations, request.travel_mode)
     for index, (step, pandal) in enumerate(
         zip(result["pandal_sequence"], ordered_stops)
     ):
@@ -165,10 +198,20 @@ def plan_frontend_route(request: ApiRouteRequest):
         **{
             "totalDistanceKm": result["total_distance_km"],
             "totalDurationMin": result["total_time_mins"],
+            "averageSpeedKmh": round(result["average_speed_kmh"], 1),
             "orderedStops": ordered_stops,
             "legs": legs,
             "trafficSource": result["traffic_source"],
             "preference": result["preference"],
+            "travelMode": result["travel_mode"],
+            "routeOptions": {
+                preference: {
+                    "totalDistanceKm": route["total_distance_km"],
+                    "totalDurationMin": route["total_time_mins"],
+                    "averageSpeedKmh": round(route["average_speed_kmh"], 1),
+                }
+                for preference, route in results.items()
+            },
         }
     )
 

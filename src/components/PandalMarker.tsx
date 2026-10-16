@@ -1,7 +1,10 @@
 import { divIcon } from 'leaflet'
 import { MapPin } from 'lucide-react'
+import { useState } from 'react'
 import { Marker, Popup } from 'react-leaflet'
 import type { Pandal } from '../types'
+
+const placeholderImage = '/pandal-placeholder.svg'
 
 interface PandalMarkerProps {
   pandal: Pandal
@@ -21,11 +24,24 @@ function markerIcon() {
 }
 
 export function PandalMarker({ pandal, distanceKm, added, onAdd }: PandalMarkerProps) {
+  const [imageFailed, setImageFailed] = useState(false)
+  const hasVerifiedPhoto = Boolean(pandal.imageAttribution && pandal.imageLicense && pandal.imageLicenseUrl && pandal.imageSourceUrl && !imageFailed)
+
   return (
     <Marker position={[pandal.lat, pandal.lng]} icon={markerIcon()} riseOnHover title={pandal.name} alt={pandal.name}>
-      <Popup className="pandal-popup" minWidth={250} maxWidth={290}>
+      <Popup className="pandal-popup" minWidth={250} maxWidth={290} maxHeight={Math.floor(window.innerHeight * 0.62)}>
         <article className="popup-card">
-          <img src={pandal.imageUrl} alt="" className="popup-image" />
+          <img
+            src={hasVerifiedPhoto ? pandal.imageUrl : placeholderImage}
+            alt={hasVerifiedPhoto ? `${pandal.name} Durga Puja pandal` : ''}
+            className="popup-image"
+            onError={() => setImageFailed(true)}
+          />
+          <div className="popup-image-credit">
+            {hasVerifiedPhoto ? (
+              <>Photo: {pandal.imageAttribution} · <a href={pandal.imageLicenseUrl} target="_blank" rel="noreferrer">{pandal.imageLicense}</a> · <a href={pandal.imageSourceUrl} target="_blank" rel="noreferrer">Wikimedia Commons</a></>
+            ) : 'Illustration · verified pandal photo unavailable'}
+          </div>
           <div className="popup-body">
             <div className="popup-eyebrow">{pandal.zone} · {pandal.area}</div>
             <h2>{pandal.name}</h2>

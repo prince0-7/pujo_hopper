@@ -1,11 +1,20 @@
 import { ArrowUpRight, MapPinned, Route, SlidersHorizontal } from 'lucide-react'
-import type { ZoneFilter } from '../types'
+import type { TravelMode, ZoneFilter } from '../types'
 
 const zones: ZoneFilter[] = ['All', 'North', 'South', 'Central', 'Salt Lake', 'Kalyani', 'Other areas']
+const fallbackSpeedsKmh: Record<TravelMode, number> = {
+  walking: 4.8,
+  driving: 20,
+  cycling: 15,
+  motorcycle: 25,
+  transit: 18,
+}
 
 interface ZoneBarProps {
   selectedZone: ZoneFilter
   radiusKm: number
+  travelMode: TravelMode
+  onTravelModeChange: (mode: TravelMode) => void
   onZoneChange: (zone: ZoneFilter) => void
   onRadiusChange: (radius: number) => void
   onPlanRoute: () => void
@@ -13,7 +22,7 @@ interface ZoneBarProps {
   stopCount: number
 }
 
-export function ZoneBar({ selectedZone, radiusKm, onZoneChange, onRadiusChange, onPlanRoute, routeBusy, stopCount }: ZoneBarProps) {
+export function ZoneBar({ selectedZone, radiusKm, travelMode, onTravelModeChange, onZoneChange, onRadiusChange, onPlanRoute, routeBusy, stopCount }: ZoneBarProps) {
   return (
     <section className="zone-bar" aria-label="Pandal filters and route planning">
       <div className="filter-row">
@@ -30,8 +39,20 @@ export function ZoneBar({ selectedZone, radiusKm, onZoneChange, onRadiusChange, 
             {zone}
           </button>
         ))}
-        <span className="zone-divider" aria-hidden="true" />
-        <button type="button" className="plan-button" onClick={onPlanRoute} disabled={routeBusy || stopCount === 0}>
+      </div>
+      <div className="zone-controls">
+        <label className="travel-mode-control">
+          <span>Travel</span>
+          <select className="travel-mode-select" value={travelMode} onChange={(event) => onTravelModeChange(event.target.value as TravelMode)} disabled={routeBusy}>
+            <option value="walking">Walking</option>
+            <option value="driving">Driving</option>
+            <option value="cycling">Cycling</option>
+            <option value="motorcycle">Motorcycle / scooter</option>
+            <option value="transit">Public transit</option>
+          </select>
+          <small>Fallback {fallbackSpeedsKmh[travelMode]} km/h</small>
+        </label>
+        <button type="button" className="plan-button" onClick={() => onPlanRoute()} disabled={routeBusy || stopCount === 0}>
           <Route size={16} aria-hidden="true" />
           <span>{routeBusy ? 'Planning…' : 'Plan route'}</span>
           {!routeBusy && <ArrowUpRight size={14} aria-hidden="true" />}
